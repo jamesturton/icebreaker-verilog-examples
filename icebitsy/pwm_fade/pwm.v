@@ -18,9 +18,9 @@
  */
 
 // This example generates PWM to fade LEDs
-// The intended result is opposite pulsating Red and Blue LEDs
-// on the iCEBreaker-bitsy. The intended effect is that the two LEDs
-// "breathe" in brigtness up and down in opposite directions.
+// The intended result is pulsating Red, Green and Blue LEDs
+// on the iCEBreaker-bitsy. The intended effect is that the three LEDs
+// "breathe" in brigtness up and down in a cycle.
 
 module top (
 	input CLK,
@@ -77,23 +77,33 @@ end
 // Note: You will see that the LEDs spend more time being very bright
 // than visibly fading, this is because our vision is non linear. Take a look
 // at the pwm_fade_gamma example that fixes this issue. :)
-reg [17:0] pwm_inc_counter = 0;
-reg [16-7:0] pwm_compare_value = 0;
+reg [14:0] pwm_inc_counter = 0;
+reg [16-6:0] pwm_compare_value = 0;
 always @(posedge CLK) begin
 	// Divide clock by 131071
 	pwm_inc_counter <= pwm_inc_counter + 1;
 
 	// increment/decrement pwm compare value at 91.55Hz
-	if (pwm_inc_counter[17]) begin
+	if (pwm_inc_counter[14]) begin
 		pwm_compare_value <= pwm_compare_value + 1;
 		pwm_inc_counter <= 0;
 	end
 
-	if (pwm_compare_value[16-7])
-		pwm_compare <= ~pwm_compare_value << 7;
-	else
-		pwm_compare <=  pwm_compare_value << 7;
+	if (pwm_compare_value[10:9] == 2'b11) begin
+		pwm_compare_value <= 0;
+	end
+
+	pwm_compare <= pwm_compare_value << 7;
 end
+
+wire rgb_pwm[2:0];
+// Generate PWM for each RGB led depending on the status of counter bits
+// cnt[27:25]. When the corresponding cnt bit is high generate a PWM where
+// PWM signal is high when cnt[2:0] is equal to 0 and low when it is not
+// equal to 0. This results in a PWM duty cycle of 1/8.
+assign rgb_pwm[0] = (pwm_out & (pwm_compare_value[10:9] == 2'b00)) | (!pwm_out & (pwm_compare_value[10:9] == 2'b01));
+assign rgb_pwm[1] = (pwm_out & (pwm_compare_value[10:9] == 2'b01)) | (!pwm_out & (pwm_compare_value[10:9] == 2'b10));
+assign rgb_pwm[2] = (pwm_out & (pwm_compare_value[10:9] == 2'b10)) | (!pwm_out & (pwm_compare_value[10:9] == 2'b00));
 
 SB_RGBA_DRV #(
 	.CURRENT_MODE("0b1"), // 0: Normal; 1: Half
@@ -107,9 +117,9 @@ SB_RGBA_DRV #(
 	.RGB2_CURRENT("0b000001")
 ) rgb_drv_I (
 	.RGBLEDEN(1'b1), // Global ON/OFF control
-	.RGB0PWM(~pwm_out), // Single ON/OFF control that can accept PWM input
-	.RGB1PWM(1'b0),
-	.RGB2PWM(pwm_out),
+	.RGB0PWM(rgb_pwm[0]), // Single ON/OFF control that can accept PWM input
+	.RGB1PWM(rgb_pwm[1]),
+	.RGB2PWM(rgb_pwm[2]),
 	.CURREN(1'b1), // Enable current reference
 	.RGB0(LED_RGB[0]),
 	.RGB1(LED_RGB[1]),
